@@ -80,7 +80,7 @@ const UKRAINE = {
    * OpenAQ function should perform the actual
    * country/boundary filtering.
    */
-  radiusKm: 700
+  radiusKm: 25
 
 };
 

@@ -1,5 +1,6 @@
 "use strict";
 
+const CACHE_TIME = 5 * 60 * 1000;
 
 let cache = {
   time: 0,
@@ -7,63 +8,9 @@ let cache = {
 };
 
 
-const CACHE_TIME =
-  5 * 60 * 1000;
-
-
-/*
- * Ukraine approximate bounding box.
- */
-
-const UKRAINE = {
-
-  west: 22.1,
-
-  south: 44.2,
-
-  east: 40.3,
-
-  north: 52.4
-
-};
-
-
 export default async (req) => {
 
   try {
-
-    /*
-     * =====================================================
-     * CACHE
-     * =====================================================
-     *
-     * If somebody refreshes the website repeatedly,
-     * don't hit OpenAQ every time.
-     */
-
-    if (
-      cache.data &&
-      Date.now() - cache.time <
-        CACHE_TIME
-    ) {
-
-      console.log(
-        "[OpenAQ] Returning cached data"
-      );
-
-
-      return Response.json(
-        cache.data,
-        {
-          headers: {
-            "X-OpenAQ-Cache":
-              "HIT"
-          }
-        }
-      );
-
-    }
-
 
     /*
      * =====================================================
@@ -92,6 +39,42 @@ export default async (req) => {
     }
 
 
+    /*
+     * =====================================================
+     * CACHE
+     * =====================================================
+     */
+
+    if (
+      cache.data &&
+      Date.now() - cache.time <
+        CACHE_TIME
+    ) {
+
+      console.log(
+        "[OpenAQ] Returning cached data"
+      );
+
+
+      return Response.json(
+        cache.data,
+        {
+          headers: {
+            "X-OpenAQ-Cache":
+              "HIT"
+          }
+        }
+      );
+
+    }
+
+
+    /*
+     * =====================================================
+     * HEADERS
+     * =====================================================
+     */
+
     const headers = {
 
       "X-API-Key":
@@ -105,22 +88,23 @@ export default async (req) => {
 
     /*
      * =====================================================
-     * LOCATIONS
+     * GET UKRAINE LOCATIONS
      * =====================================================
+     *
+     * OpenAQ supports ISO country filtering.
+     *
+     * UA = Ukraine
+     *
+     * We also use the Ukraine bounding box as an
+     * additional safety filter.
      */
 
     const locationsUrl =
       "https://api.openaq.org/v3/locations" +
 
-      `?bbox=` +
+      "?iso=UA" +
 
-      `${UKRAINE.west},` +
-
-      `${UKRAINE.south},` +
-
-      `${UKRAINE.east},` +
-
-      `${UKRAINE.north}` +
+      "&bbox=22.1,44.2,40.3,52.4" +
 
       "&limit=100";
 
@@ -135,6 +119,7 @@ export default async (req) => {
       await fetch(
         locationsUrl,
         {
+          method: "GET",
           headers
         }
       );
@@ -149,7 +134,7 @@ export default async (req) => {
     ) {
 
       console.error(
-        "[OpenAQ] Locations:",
+        "[OpenAQ] Locations error:",
         locationsResponse.status,
         locationsText
       );
@@ -163,13 +148,34 @@ export default async (req) => {
         return Response.json(
           {
             error:
-              "OpenAQ rate limit exceeded. Wait a few minutes before trying again.",
+              "OpenAQ rate limit exceeded. Please wait a few minutes and try again.",
 
             status:
               429
           },
           {
             status: 429
+          }
+        );
+
+      }
+
+
+      if (
+        locationsResponse.status ===
+        401
+      ) {
+
+        return Response.json(
+          {
+            error:
+              "OpenAQ API key was rejected.",
+
+            status:
+              401
+          },
+          {
+            status: 401
           }
         );
 
@@ -196,10 +202,29 @@ export default async (req) => {
     }
 
 
-    const locationsData =
-      JSON.parse(
-        locationsText
+    let locationsData;
+
+
+    try {
+
+      locationsData =
+        JSON.parse(
+          locationsText
+        );
+
+    } catch (error) {
+
+      return Response.json(
+        {
+          error:
+            "OpenAQ returned invalid JSON"
+        },
+        {
+          status: 502
+        }
       );
+
+    }
 
 
     const locations =
@@ -207,66 +232,211 @@ export default async (req) => {
       [];
 
 
-    /*
-     * =====================================================
-     * UKRAINE FILTER
-     * =====================================================
-     */
-
-    const ukrainianLocations =
-      locations.filter(
-        location => {
-
-          const coordinates =
-            location.coordinates;
-
-
-          if (
-            !coordinates
-          ) {
-
-            return false;
-
-          }
-
-
-          const lat =
-            Number(
-              coordinates.latitude
-            );
-
-
-          const lon =
-            Number(
-              coordinates.longitude
-            );
-
-
-          return (
-
-            lat >= UKRAINE.south &&
-
-            lat <= UKRAINE.north &&
-
-            lon >= UKRAINE.west &&
-
-            lon <= UKRAINE.east
-
-          );
-
-        }
-      );
-
-
     console.log(
-      "[OpenAQ] Ukraine locations:",
-      ukrainianLocations.length
+      "[OpenAQ] Locations:",
+      locations.length
     );
 
 
     /*
      * =====================================================
-     * RESULTS
+     * FIND FORMALDEHYDE SENSORS
+     * =====================================================
+     *
+     * The location response contains:
+     *
+     * location.sensors[]
+     *
+     * Each sensor has a parameter object.
+     */
+
+    const hchoSensors = [];
+
+
+    for (
+      const location
+      of locations
+    ) {
+
+      const coordinates =
+        location.coordinates;
+
+
+      if (
+        !coordinates
+      ) {
+
+        continue;
+
+      }
+
+
+      const latitude =
+        Number(
+          coordinates.latitude
+        );
+
+
+      const longitude =
+        Number(
+          coordinates.longitude
+        );
+
+
+      if (
+        !Number.isFinite(
+          latitude
+        ) ||
+        !Number.isFinite(
+          longitude
+        )
+      ) {
+
+        continue;
+
+      }
+
+
+      /*
+       * Final geographic safety filter.
+       */
+
+      if (
+
+        latitude < 44.2 ||
+
+        latitude > 52.4 ||
+
+        longitude < 22.1 ||
+
+        longitude > 40.3
+
+      ) {
+
+        continue;
+
+      }
+
+
+      const sensors =
+        location.sensors ||
+        [];
+
+
+      for (
+        const sensor
+        of sensors
+      ) {
+
+        const parameter =
+          sensor.parameter ||
+          {};
+
+
+        const parameterName =
+          String(
+            parameter.name ||
+            ""
+          ).toLowerCase();
+
+
+        const displayName =
+          String(
+            parameter.displayName ||
+            ""
+          ).toLowerCase();
+
+
+        const sensorName =
+          String(
+            sensor.name ||
+            ""
+          ).toLowerCase();
+
+
+        const isHCHO =
+
+          parameterName ===
+            "formaldehyde" ||
+
+          parameterName ===
+            "hcho" ||
+
+          parameterName.includes(
+            "formaldehyde"
+          ) ||
+
+          parameterName.includes(
+            "hcho"
+          ) ||
+
+          displayName.includes(
+            "formaldehyde"
+          ) ||
+
+          displayName.includes(
+            "hcho"
+          ) ||
+
+          sensorName.includes(
+            "formaldehyde"
+          ) ||
+
+          sensorName.includes(
+            "hcho"
+          );
+
+
+        if (
+          !isHCHO
+        ) {
+
+          continue;
+
+        }
+
+
+        hchoSensors.push({
+
+          sensorId:
+            sensor.id,
+
+          locationId:
+            location.id,
+
+          location:
+            location.name ||
+            "OpenAQ station",
+
+          latitude,
+
+          longitude,
+
+          parameter:
+            parameter.name ||
+            parameter.displayName ||
+            "HCHO",
+
+          units:
+            parameter.units ||
+            null
+
+        });
+
+      }
+
+    }
+
+
+    console.log(
+      "[OpenAQ] HCHO sensors:",
+      hchoSensors.length
+    );
+
+
+    /*
+     * =====================================================
+     * GET LATEST VALUE FOR EACH HCHO SENSOR
      * =====================================================
      */
 
@@ -274,70 +444,54 @@ export default async (req) => {
 
 
     /*
-     * =====================================================
-     * PROCESS LOCATIONS
-     * =====================================================
+     * Prevent an excessive number of requests.
      *
-     * IMPORTANT:
-     *
-     * We deliberately limit the number of requests.
-     *
+     * Increase later if necessary.
      */
 
-    const locationsToProcess =
-      ukrainianLocations.slice(
+    const sensorsToProcess =
+      hchoSensors.slice(
         0,
-        20
+        50
       );
 
 
     for (
-      const location
-      of locationsToProcess
+      const sensor
+      of sensorsToProcess
     ) {
 
       try {
 
-        /*
-         * Get latest measurements directly.
-         *
-         * We don't request /sensors separately.
-         */
-
         const latestUrl =
-          `https://api.openaq.org/v3/locations/${location.id}/latest?limit=100`;
+          `https://api.openaq.org/v3/sensors/${sensor.sensorId}/measurements?limit=1`;
 
 
         console.log(
-          "[OpenAQ] Latest:",
-          location.id
+          "[OpenAQ] Sensor:",
+          sensor.sensorId
         );
 
 
-        const latestResponse =
+        const response =
           await fetch(
             latestUrl,
             {
+              method: "GET",
               headers
             }
           );
 
 
         if (
-          latestResponse.status ===
+          response.status ===
           429
         ) {
 
           console.warn(
-            "[OpenAQ] Rate limited while reading station",
-            location.id
+            "[OpenAQ] Rate limited"
           );
 
-
-          /*
-           * Stop immediately rather than making
-           * the rate-limit problem worse.
-           */
 
           break;
 
@@ -345,13 +499,13 @@ export default async (req) => {
 
 
         if (
-          !latestResponse.ok
+          !response.ok
         ) {
 
           console.warn(
-            "[OpenAQ] Station failed:",
-            location.id,
-            latestResponse.status
+            "[OpenAQ] Sensor request failed:",
+            sensor.sensorId,
+            response.status
           );
 
 
@@ -360,174 +514,151 @@ export default async (req) => {
         }
 
 
-        const latestData =
-          await latestResponse.json();
+        const data =
+          await response.json();
 
 
         const measurements =
-          latestData.results ||
+          data.results ||
           [];
 
 
-        /*
-         * =================================================
-         * FIND FORMALDEHYDE
-         * =================================================
-         */
-
-        for (
-          const measurement
-          of measurements
+        if (
+          !measurements.length
         ) {
 
-          const text =
-            JSON.stringify(
-              measurement
-            ).toLowerCase();
-
-
-          const isHCHO =
-
-            text.includes(
-              "formaldehyde"
-            ) ||
-
-            text.includes(
-              "hcho"
-            );
-
-
-          if (
-            !isHCHO
-          ) {
-
-            continue;
-
-          }
-
-
-          const value =
-            Number(
-              measurement.value
-            );
-
-
-          if (
-            !Number.isFinite(
-              value
-            )
-          ) {
-
-            continue;
-
-          }
-
-
-          const coordinates =
-            measurement.coordinates ||
-            location.coordinates;
-
-
-          if (
-            !coordinates
-          ) {
-
-            continue;
-
-          }
-
-
-          const latitude =
-            Number(
-              coordinates.latitude
-            );
-
-
-          const longitude =
-            Number(
-              coordinates.longitude
-            );
-
-
-          if (
-            !Number.isFinite(
-              latitude
-            ) ||
-            !Number.isFinite(
-              longitude
-            )
-          ) {
-
-            continue;
-
-          }
-
-
-          /*
-           * Final Ukraine check.
-           */
-
-          if (
-
-            latitude <
-              UKRAINE.south ||
-
-            latitude >
-              UKRAINE.north ||
-
-            longitude <
-              UKRAINE.west ||
-
-            longitude >
-              UKRAINE.east
-
-          ) {
-
-            continue;
-
-          }
-
-
-          results.push({
-
-            source:
-              "OpenAQ",
-
-            country:
-              "Ukraine",
-
-            location:
-              location.name ||
-              "OpenAQ station",
-
-            locationId:
-              location.id,
-
-            latitude,
-
-            longitude,
-
-            valueMgM3:
-              value,
-
-            parameter:
-              "HCHO",
-
-            datetime:
-              measurement.datetime?.utc ||
-              measurement.datetime?.local ||
-              null
-
-          });
+          continue;
 
         }
+
+
+        /*
+         * Most recent returned measurement.
+         */
+
+        const measurement =
+          measurements[0];
+
+
+        const value =
+          Number(
+            measurement.value
+          );
+
+
+        if (
+          !Number.isFinite(
+            value
+          )
+        ) {
+
+          continue;
+
+        }
+
+
+        const coordinates =
+          measurement.coordinates || {
+
+            latitude:
+              sensor.latitude,
+
+            longitude:
+              sensor.longitude
+
+          };
+
+
+        const latitude =
+          Number(
+            coordinates.latitude
+          );
+
+
+        const longitude =
+          Number(
+            coordinates.longitude
+          );
+
+
+        if (
+          !Number.isFinite(
+            latitude
+          ) ||
+          !Number.isFinite(
+            longitude
+          )
+        ) {
+
+          continue;
+
+        }
+
+
+        /*
+         * Final Ukraine check.
+         */
+
+        if (
+
+          latitude < 44.2 ||
+
+          latitude > 52.4 ||
+
+          longitude < 22.1 ||
+
+          longitude > 40.3
+
+        ) {
+
+          continue;
+
+        }
+
+
+        results.push({
+
+          source:
+            "OpenAQ",
+
+          country:
+            "Ukraine",
+
+          location:
+            sensor.location,
+
+          locationId:
+            sensor.locationId,
+
+          sensorId:
+            sensor.sensorId,
+
+          latitude,
+
+          longitude,
+
+          valueMgM3:
+            value,
+
+          parameter:
+            sensor.parameter,
+
+          units:
+            sensor.units,
+
+          datetime:
+            measurement.datetime?.utc ||
+            measurement.datetime?.local ||
+            null
+
+        });
 
 
       } catch (error) {
 
         console.error(
-          "[OpenAQ] Station error:",
-          location.id,
+          "[OpenAQ] Sensor error:",
+          sensor.sensorId,
           error
         );
 
@@ -550,9 +681,8 @@ export default async (req) => {
           results.map(
             item => [
 
-              `${item.locationId}:` +
-              `${item.datetime}:` +
-              `${item.valueMgM3}`,
+              `${item.sensorId}:` +
+              `${item.datetime}`,
 
               item
 
@@ -563,6 +693,12 @@ export default async (req) => {
 
       );
 
+
+    /*
+     * =====================================================
+     * FINAL RESPONSE
+     * =====================================================
+     */
 
     const responseData = {
 
@@ -582,9 +718,7 @@ export default async (req) => {
 
 
     /*
-     * =====================================================
-     * CACHE
-     * =====================================================
+     * Save to cache.
      */
 
     cache = {
@@ -599,7 +733,7 @@ export default async (req) => {
 
 
     console.log(
-      "[OpenAQ] HCHO results:",
+      "[OpenAQ] Final HCHO results:",
       uniqueResults.length
     );
 

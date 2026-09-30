@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Formaldehyde Air Quality Map</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  >
+
+  <link
+    rel="stylesheet"
+    href="/style.css"
+  >
+</head>
+
+<body>
+
+  <header>
+    <h1>Formaldehyde Air Quality</h1>
+    <p>HCHO concentration map</p>
+  </header>
+
+  <main>
+
+    <section class="controls">
+
+      <label>
+        Latitude
+        <input
+          id="lat"
+          type="number"
+          step="0.0001"
+          value="46.4825"
+        >
+      </label>
+
+      <label>
+        Longitude
+        <input
+          id="lon"
+          type="number"
+          step="0.0001"
+          value="30.7233"
+        >
+      </label>
+
+      <label>
+        Radius (km)
+        <input
+          id="radius"
+          type="number"
+          min="1"
+          max="25"
+          value="25"
+        >
+      </label>
+
+      <label>
+        Reference limit (mg/m³)
+        <input
+          id="limit"
+          type="number"
+          step="0.0001"
+          value="0.05"
+        >
+      </label>
+
+      <label class="check">
+        <input
+          id="showMg"
+          type="checkbox"
+          checked
+        >
+        mg/m³
+      </label>
+
+      <label class="check">
+        <input
+          id="showPercent"
+          type="checkbox"
+          checked
+        >
+        %
+      </label>
+
+      <button id="loadBtn">
+        Load
+      </button>
+
+      <button id="refreshBtn">
+        Refresh
+      </button>
+
+      <div id="status">
+        Ready
+      </div>
+
+    </section>
+
+    <div id="map"></div>
+
+  </main>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  ></script>
+
+  <script src="/app.js"></script>
+
+</body>
+</html>

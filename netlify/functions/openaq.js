@@ -770,19 +770,32 @@ export default async (req) => {
 
     return Response.json({
 
-      source:
-        "OpenAQ",
+  source:
+    "OpenAQ",
 
-      country:
-        "Ukraine",
+  country:
+    "Ukraine",
 
-      count:
-        uniqueResults.length,
+  count:
+    uniqueResults.length,
 
-      results:
-        uniqueResults
+  results:
+    uniqueResults,
 
-    });
+  debug: {
+
+    locationsFound:
+      locations.length,
+
+    ukrainianLocations:
+      ukrainianLocations.length,
+
+    hchoResults:
+      uniqueResults.length
+
+  }
+
+});
 
 
   } catch (error) {

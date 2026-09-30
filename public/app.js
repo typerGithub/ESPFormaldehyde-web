@@ -3,9 +3,10 @@
 
 const map =
   L.map("map").setView(
-    [46.4825, 30.7233],
-    10
+    [48.3794, 31.1656],
+    6
   );
+
 
 
 L.tileLayer(
